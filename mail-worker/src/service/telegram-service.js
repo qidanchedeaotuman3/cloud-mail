@@ -13,6 +13,26 @@ import emailTextTemplate from '../template/email-text';
 import emailHtmlTemplate from '../template/email-html';
 import verifyUtils from '../utils/verify-utils';
 
+// 智能解析发件人/收件人字段（兼容字符串、对象、JSON数组）
+function parseEmailField(field) {
+    if (!field) return '未知';
+    if (typeof field === 'string') {
+        try {
+            const parsed = JSON.parse(field);
+            return parseEmailField(parsed);
+        } catch (e) {
+            return field;
+        }
+    }
+    if (Array.isArray(field)) {
+        return field.map(item => item.address || item.name || JSON.stringify(item)).join(', ');
+    }
+    if (typeof field === 'object') {
+        return field.address || field.name || JSON.stringify(field);
+    }
+    return String(field);
+}
+
 const telegramService = {
 
     async getEmailContent(c, params) {
@@ -58,7 +78,7 @@ const telegramService = {
         }));
 
         // ==========================================
-        // 2. 企微 Textcard卡片 (优先使用 QYWX_CUSTOM_DOMAIN)
+        // 2. 企微 Textcard卡片 (智能解析收发件人)
         // ==========================================
         try {
             const corpId = c.env && c.env.QYWX_CORPID;
@@ -71,7 +91,6 @@ const telegramService = {
                 qywxApiBase = c.env.QYWX_PROXY.trim().replace(/\/$/, '');
             }
 
-            // 获取微信专属域名：如果有变量就用变量，没有就退回默认 domain
             let wxDomain = (c.env && c.env.QYWX_CUSTOM_DOMAIN) ? c.env.QYWX_CUSTOM_DOMAIN.trim() : customDomain;
             let safeWxDomain = wxDomain.startsWith('http') ? wxDomain : `https://${wxDomain}`;
             const wxWebAppUrl = wxDomain ? `${safeWxDomain}/api/telegram/getEmail/${jwtToken}` : 'https://www.cloudflare.com/404';
@@ -97,9 +116,10 @@ const telegramService = {
 
             if (tokenData.access_token) {
                 const safeSubject = email.subject || '无主题';
-                // 增加多重字段匹配，完美兼容数据库真实字段名
-                const safeFrom = email.fromAddress || email.sender || email.from || '未知发件人';
-                const safeTo = email.toAddress || email.recipient || email.to || '未知收件人';
+                
+                // 使用智能解析函数，完美提取真实邮箱字符串
+                const safeFrom = parseEmailField(email.from || email.fromAddress || email.sender);
+                const safeTo = parseEmailField(email.to || email.toAddress || email.recipient);
                 
                 const textPreview = (email.text || '无纯文本正文').substring(0, 150).replace(/\n/g, '  ') + '...';
 
